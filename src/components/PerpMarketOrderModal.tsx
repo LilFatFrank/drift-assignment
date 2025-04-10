@@ -1,10 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useDriftStore } from "@/store/useDriftStore";
 import { useWallet } from "@solana/wallet-adapter-react";
-import { BN } from "@coral-xyz/anchor";
-import { convertToNative, decodeSymbol } from "@/utils/format";
+import { decodeSymbol } from "@/utils/format";
 import {
   getUserAccountPublicKey,
   User,
@@ -34,6 +33,18 @@ export default function PerpMarketOrderModal({ onClose }: Props) {
   );
   const [error, setError] = useState<string | null>(null);
 
+  // Update mark price when market changes
+  useEffect(() => {
+    if (!driftClient) return;
+    
+    try {
+      const oraclePrice = driftClient.getOracleDataForPerpMarket(selectedMarketIndex).price.toNumber() / 1e6;
+      setMarkPrice(oraclePrice);
+    } catch (err) {
+      console.error('Error getting oracle price:', err);
+    }
+  }, [driftClient, selectedMarketIndex]);
+
   const handleSubmit = async () => {
     if (!driftClient || !user || !publicKey) return;
 
@@ -46,14 +57,15 @@ export default function PerpMarketOrderModal({ onClose }: Props) {
       }
 
       const market = driftClient.getPerpMarketAccount(selectedMarketIndex);
+      if (!market) {
+        throw new Error("Market not found");
+      }
 
-      const markPrice =
-        driftClient
-          .getOracleDataForPerpMarket(market?.marketIndex ?? 0)
-          .price.toNumber() / 1e6;
-      setMarkPrice(markPrice);
-      const baseAmountUi = quote / markPrice;
-
+      // Get latest oracle price
+      const oraclePrice = driftClient.getOracleDataForPerpMarket(selectedMarketIndex).price.toNumber() / 1e6;
+      setMarkPrice(oraclePrice);
+      
+      const baseAmountUi = quote / oraclePrice;
       const baseAssetAmount = driftClient.convertToPerpPrecision(baseAmountUi);
 
       const authority = publicKey;
@@ -165,13 +177,14 @@ export default function PerpMarketOrderModal({ onClose }: Props) {
               <strong>Estimated Position Size:</strong>{" "}
               {(parseFloat(quoteAmount) / markPrice).toFixed(4)} base units
             </p>
-            <p>
-              <strong>Estimated Leverage:</strong>{" "}
-              {(
-                parseFloat(quoteAmount) / user?.getTotalCollateral().toNumber()
-              ).toFixed(2)}
-              x
-            </p>
+            {user && (
+              <>
+                <p>
+                  <strong>Current Position Size:</strong>{" "}
+                  {user.getPerpPosition(selectedMarketIndex)?.baseAssetAmount.toString() || "0"} base units
+                </p>
+              </>
+            )}
           </div>
         ) : null}
 

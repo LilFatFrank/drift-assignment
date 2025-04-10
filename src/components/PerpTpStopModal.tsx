@@ -5,18 +5,14 @@ import { useDriftStore } from "@/store/useDriftStore";
 import { useWallet } from "@solana/wallet-adapter-react";
 import {
   getUserAccountPublicKey,
-  User,
   OrderType,
   PositionDirection,
+  OrderTriggerCondition,
+  User,
 } from "@drift-labs/sdk";
-import { BN } from "@coral-xyz/anchor";
 import { decodeSymbol } from "@/utils/format";
 
-interface Props {
-  onClose: () => void;
-}
-
-export default function PerpLimitOrderModal({ onClose }: Props) {
+export default function PerpTPStopModal({ onClose }: { onClose: () => void }) {
   const driftClient = useDriftStore((s) => s.driftClient);
   const subaccounts = useDriftStore((s) => s.subaccounts);
   const { publicKey } = useWallet();
@@ -28,33 +24,34 @@ export default function PerpLimitOrderModal({ onClose }: Props) {
     perpMarkets[0]?.marketIndex || 0
   );
   const [side, setSide] = useState<"long" | "short">("long");
+  const [triggerPrice, setTriggerPrice] = useState("");
   const [quoteAmount, setQuoteAmount] = useState("");
-  const [limitPrice, setLimitPrice] = useState("");
+  const [type, setType] = useState<"tp" | "sl">("tp");
   const [postOnly, setPostOnly] = useState(false);
-  const [status, setStatus] = useState<"idle" | "loading" | "done" | "error">(
-    "idle"
-  );
+  const [status, setStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [error, setError] = useState<string | null>(null);
 
   const handleSubmit = async () => {
     if (!driftClient || !user || !publicKey) return;
-  
     try {
       setStatus("loading");
-  
+
       const quote = parseFloat(quoteAmount);
-      const price = parseFloat(limitPrice);
-      if (!quote || quote <= 0 || !price || price <= 0) {
+      const price = parseFloat(triggerPrice);
+      if (!quote || !price || quote <= 0 || price <= 0) {
         throw new Error("Invalid input");
       }
-  
-      const baseAmountUi = quote / price;
+
+      const markPrice =
+        driftClient.getOracleDataForPerpMarket(selectedMarketIndex).price.toNumber() / 1e6;
+
+      const baseAmountUi = quote / markPrice;
       const baseAssetAmount = driftClient.convertToPerpPrecision(baseAmountUi);
-      const limitPriceNative = driftClient.convertToPricePrecision(price);
-  
+      const nativeTriggerPrice = driftClient.convertToPricePrecision(price);
+
       const authority = publicKey;
       const subAccountId = user.getUserAccount().subAccountId;
-  
+
       let driftUser: User;
       try {
         driftUser = driftClient.getUser(subAccountId, authority);
@@ -69,66 +66,36 @@ export default function PerpLimitOrderModal({ onClose }: Props) {
         await driftClient.addUser(subAccountId, authority);
         driftUser = driftClient.getUser(subAccountId, authority);
       }
-  
+
       if (!driftUser.isSubscribed) await driftUser.subscribe();
 
-      // Check market state
-      const market = driftClient.getPerpMarketAccount(selectedMarketIndex);
-      if (!market) {
-        throw new Error("Market not found");
-      }
+      const direction = side === "long" ? PositionDirection.LONG : PositionDirection.SHORT;
+      let triggerCondition: OrderTriggerCondition;
 
-      // Get oracle price for reference
-      const oraclePrice = driftClient.getOracleDataForPerpMarket(selectedMarketIndex).price;
-      console.log('Market Info:', {
-        marketIndex: selectedMarketIndex,
-        oraclePrice: oraclePrice.toString(),
-        baseAssetAmount: baseAssetAmount.toString(),
-        limitPrice: limitPriceNative.toString(),
-        marketStatus: market.status,
-      });
+      if (side === "long" && type === "tp") triggerCondition = OrderTriggerCondition.ABOVE;
+      else if (side === "long" && type === "sl") triggerCondition = OrderTriggerCondition.BELOW;
+      else if (side === "short" && type === "tp") triggerCondition = OrderTriggerCondition.BELOW;
+      else triggerCondition = OrderTriggerCondition.ABOVE;
 
-      // Check user's collateral
-      const freeCollateral = user.getFreeCollateral().toString();
-      console.log('User Info:', {
-        subAccountId,
-        freeCollateral,
-      });
-
-      // Create order params object
       const orderParams = {
-        orderType: OrderType.LIMIT,
+        orderType: OrderType.TRIGGER_LIMIT,
         marketIndex: selectedMarketIndex,
-        direction: side === "long" ? PositionDirection.LONG : PositionDirection.SHORT,
-        baseAssetAmount: baseAssetAmount,
-        price: limitPriceNative,
-        reduceOnly: false,
-      };
+        direction,
+        baseAssetAmount,
+        price: nativeTriggerPrice,
+        triggerPrice: nativeTriggerPrice,
+        triggerCondition,
+        postOnly,
+        reduceOnly: true,
+      } as const;
 
-      console.log('Order Params:', {
-        ...orderParams,
-        baseAssetAmount: baseAssetAmount.toString(),
-        price: limitPriceNative.toString(),
-        direction: side === "long" ? "LONG" : "SHORT",
-        orderType: "LIMIT"
-      });
+      await driftClient.placePerpOrder(orderParams);
 
-      try {
-        // Try placing the order
-        await driftClient.placePerpOrder(orderParams);
-        setStatus("done");
-        setQuoteAmount("");
-        setLimitPrice("");
-      } catch (err: any) {
-        console.error('Detailed Error:', {
-          message: err.message,
-          logs: err.logs,
-          error: err
-        });
-        throw err;
-      }
+      setStatus("done");
+      setQuoteAmount("");
+      setTriggerPrice("");
     } catch (err: any) {
-      console.error("Limit Order Error:", err);
+      console.error("TP/SL Error:", err);
       setError(err.message || "Transaction failed");
       setStatus("error");
     } finally {
@@ -137,12 +104,12 @@ export default function PerpLimitOrderModal({ onClose }: Props) {
         onClose();
       }, 2000);
     }
-  };  
+  };
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
       <div className="bg-white w-full max-w-md p-6 rounded-xl shadow-xl relative">
-        <h3 className="text-xl font-semibold mb-4">Place Limit Order</h3>
+        <h3 className="text-xl font-semibold mb-4">Set Take Profit / Stop Loss</h3>
 
         <label className="block mb-2 text-sm font-medium">Perp Market</label>
         <select
@@ -157,25 +124,46 @@ export default function PerpLimitOrderModal({ onClose }: Props) {
           ))}
         </select>
 
-        <label className="block mb-2 text-sm font-medium">Side</label>
+        <label className="block mb-2 text-sm font-medium">Position Side</label>
         <div className="flex gap-4 mb-4">
           <button
-            className={`px-4 py-2 rounded ${
-              side === "long" ? "bg-green-600 text-white" : "border"
-            }`}
+            className={`px-4 py-2 rounded ${side === "long" ? "bg-green-600 text-white" : "border"}`}
             onClick={() => setSide("long")}
           >
             Long
           </button>
           <button
-            className={`px-4 py-2 rounded ${
-              side === "short" ? "bg-red-600 text-white" : "border"
-            }`}
+            className={`px-4 py-2 rounded ${side === "short" ? "bg-red-600 text-white" : "border"}`}
             onClick={() => setSide("short")}
           >
             Short
           </button>
         </div>
+
+        <label className="block mb-2 text-sm font-medium">Type</label>
+        <div className="flex gap-4 mb-4">
+          <button
+            className={`px-4 py-2 rounded ${type === "tp" ? "bg-blue-600 text-white" : "border"}`}
+            onClick={() => setType("tp")}
+          >
+            Take Profit
+          </button>
+          <button
+            className={`px-4 py-2 rounded ${type === "sl" ? "bg-yellow-600 text-white" : "border"}`}
+            onClick={() => setType("sl")}
+          >
+            Stop Loss
+          </button>
+        </div>
+
+        <label className="block mb-2 text-sm font-medium">Trigger Price</label>
+        <input
+          type="number"
+          className="w-full border p-2 rounded mb-4"
+          placeholder="0.0"
+          value={triggerPrice}
+          onChange={(e) => setTriggerPrice(e.target.value)}
+        />
 
         <label className="block mb-2 text-sm font-medium">Quote Amount (USDC)</label>
         <input
@@ -185,32 +173,6 @@ export default function PerpLimitOrderModal({ onClose }: Props) {
           value={quoteAmount}
           onChange={(e) => setQuoteAmount(e.target.value)}
         />
-
-        <label className="block mb-2 text-sm font-medium">Limit Price</label>
-        <input
-          type="number"
-          className="w-full border p-2 rounded mb-4"
-          placeholder="0.0"
-          value={limitPrice}
-          onChange={(e) => setLimitPrice(e.target.value)}
-        />
-
-        {quoteAmount && limitPrice ? (
-          <div className="text-sm mb-4">
-            <p>
-              <strong>Estimated Position Size:</strong>{" "}
-              {(parseFloat(quoteAmount) / parseFloat(limitPrice)).toFixed(4)} base units
-            </p>
-            {user && (
-              <>
-                <p>
-                  <strong>Current Position Size:</strong>{" "}
-                  {user.getPerpPosition(selectedMarketIndex)?.baseAssetAmount.toString() || "0"} base units
-                </p>
-              </>
-            )}
-          </div>
-        ) : null}
 
         <label className="inline-flex items-center mb-4">
           <input
@@ -227,13 +189,13 @@ export default function PerpLimitOrderModal({ onClose }: Props) {
           className="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700"
           disabled={status === "loading"}
         >
-          {status === "loading" ? "Placing..." : "Submit Limit Order"}
+          {status === "loading" ? "Placing..." : "Submit TP/SL Order"}
         </button>
 
         {error && <p className="text-red-500 text-sm mt-2">{error}</p>}
         {status === "done" && (
           <p className="text-green-600 text-sm mt-2">
-            Limit order placed successfully!
+            TP/SL order placed successfully!
           </p>
         )}
 
