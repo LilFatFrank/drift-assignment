@@ -9,14 +9,15 @@ export function getSpotBalances(user: User, driftClient: DriftClient) {
     .filter((pos) => !pos.scaledBalance.eqn(0))
     .map((pos) => {
       const marketIndex = pos.marketIndex;
-      const market = spotMarkets[marketIndex];
+      const market = spotMarkets.find((sm) => sm.marketIndex === marketIndex);
       const symbol = market?.name
         ? decodeSymbol(market.name)
         : `Token ${marketIndex}`;
       const decimals = market?.decimals || 6;
 
       const isBorrow = pos.scaledBalance.ltn(0);
-      const amount = convertToUiDecimals(pos.scaledBalance.abs(), decimals);
+      const tokenAmount = user.getTokenAmount(marketIndex);
+      const amount = convertToUiDecimals(tokenAmount.abs(), decimals);
 
       return {
         marketIndex,

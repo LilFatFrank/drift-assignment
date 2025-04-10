@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import type { Wallet as AnchorWallet } from "@coral-xyz/anchor";
 import { useDriftStore } from "@/store/useDriftStore";
+import { useViewerStore } from "@/store/useViewerStore";
 import { PublicKey, Connection } from "@solana/web3.js";
 
 const connection = new Connection(
@@ -9,13 +10,13 @@ const connection = new Connection(
   {
     commitment: "confirmed",
     confirmTransactionInitialTimeout: 60000,
-    wsEndpoint:
-      `wss://mainnet.helius-rpc.com/?api-key=${process.env.NEXT_PUBLIC_RPC_API_KEY}`,
+    wsEndpoint: `wss://mainnet.helius-rpc.com/?api-key=${process.env.NEXT_PUBLIC_RPC_API_KEY}`,
   }
 );
 
 export function useDriftInit() {
-  const { wallet, publicKey, connected } = useWallet();
+  const { wallet, publicKey: connectedWallet, connected } = useWallet();
+  const viewedWallet = useViewerStore((s) => s.viewedWallet);
   const setDriftClient = useDriftStore((s) => s.setDriftClient);
   const setSubaccounts = useDriftStore((s) => s.setSubaccounts);
 
@@ -23,12 +24,16 @@ export function useDriftInit() {
   const [error, setError] = useState<string | null>(null);
   const hasLoaded = useRef<string | null>(null);
 
-  useEffect(() => {
-    if (!wallet?.adapter || !connected || !publicKey) return;
+  const isViewingSelf = !viewedWallet;
+  const authority = viewedWallet ?? connectedWallet;
 
-    const pubkeyBase58 = publicKey.toBase58();
-    if (hasLoaded.current === pubkeyBase58) return;
-    hasLoaded.current = pubkeyBase58;
+  useEffect(() => {
+    if (!authority || (isViewingSelf && (!wallet?.adapter || !connected)))
+      return;
+
+    const authorityKey = authority.toBase58();
+    if (hasLoaded.current === authorityKey) return;
+    hasLoaded.current = authorityKey;
 
     const delay = (ms: number) => new Promise((res) => setTimeout(res, ms));
 
@@ -42,9 +47,21 @@ export function useDriftInit() {
 
         const PROGRAM_ID = new PublicKey(DRIFT_PROGRAM_ID);
 
+        const adapterWallet = wallet?.adapter as AnchorWallet | undefined;
+
+        if (isViewingSelf && !adapterWallet) {
+          throw new Error("Wallet adapter is missing in connected mode");
+        }
+
         const driftClient = new DriftClient({
           connection,
-          wallet: wallet.adapter as unknown as AnchorWallet,
+          wallet: isViewingSelf
+            ? adapterWallet!
+            : ({
+                publicKey: authority,
+                signAllTransactions: async (txs) => txs,
+                signTransaction: async (tx) => tx,
+              } as AnchorWallet),
           programID: PROGRAM_ID,
           env: "mainnet-beta",
         });
@@ -54,11 +71,11 @@ export function useDriftInit() {
 
         const users: InstanceType<typeof User>[] = [];
 
-        for (let i = 0; i < 9; i++) {
+        for (let i = 0; i < 8; i++) {
           try {
             const userAccountPublicKey = await getUserAccountPublicKey(
               PROGRAM_ID,
-              publicKey,
+              authority,
               i
             );
 
@@ -96,7 +113,7 @@ export function useDriftInit() {
     };
 
     load();
-  }, [wallet, connected, publicKey]);
+  }, [wallet, connected, connectedWallet, viewedWallet]);
 
   return { loading, error };
 }

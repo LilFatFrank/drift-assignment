@@ -1,5 +1,9 @@
 import { BN } from "@coral-xyz/anchor";
 
+export function convertToNative(amount: number, decimals: number): BN {
+  return new BN(Math.round(amount * 10 ** decimals));
+}
+
 export function formatNumber(value: number | string, decimals = 2): string {
   const num = typeof value === "string" ? parseFloat(value) : value;
 
