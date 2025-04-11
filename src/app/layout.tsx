@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import "@solana/wallet-adapter-react-ui/styles.css";
 import { WalletContextProvider } from "@/components/WalletContextProvider";
+import { Header } from "@/components/Header";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -29,7 +30,12 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <WalletContextProvider>{children}</WalletContextProvider>
+        <WalletContextProvider>
+          <>
+            <Header />
+            {children}
+          </>
+        </WalletContextProvider>
       </body>
     </html>
   );

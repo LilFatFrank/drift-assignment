@@ -91,7 +91,7 @@ export function DepositWithdrawModal({ onClose }: Props) {
           subAccountId
         );
       }
-
+      useDriftStore.getState().refreshBalances();
       setStatus("done");
       setAmountUi("");
       const updatedUser = driftClient.getUser(subAccountId, publicKey);
@@ -111,15 +111,22 @@ export function DepositWithdrawModal({ onClose }: Props) {
 
         useDriftStore.getState().setSubaccounts(updatedSubaccounts);
       }
-    } catch (err: any) {
-      console.error("Deposit/Withdraw Error:", err);
-      setError(err.message || "Unexpected error");
-      setStatus("error");
-    } finally {
+
+      // Force refresh wallet balances
+      const { refreshBalances } = useDriftStore.getState();
+      if (refreshBalances) {
+        await refreshBalances();
+      }
+
+      // Close modal after successful update
       setTimeout(() => {
         setStatus("idle");
         onClose();
       }, 2000);
+    } catch (err: any) {
+      console.error("Deposit/Withdraw Error:", err);
+      setError(err.message || "Unexpected error");
+      setStatus("error");
     }
   };
 

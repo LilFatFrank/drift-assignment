@@ -29,6 +29,7 @@ export function useWalletBalances(): {
 } {
   const { publicKey, connected } = useWallet();
   const driftClient = useDriftStore((s) => s.driftClient);
+  const lastBalanceUpdate = useDriftStore((s) => s.lastBalanceUpdate);
 
   const [balances, setBalances] = useState<WalletTokenBalance[]>([]);
   const [loading, setLoading] = useState(false);
@@ -111,7 +112,7 @@ export function useWalletBalances(): {
     };
 
     loadBalances();
-  }, [connection, publicKey, connected, driftClient]);
+  }, [connection, publicKey, connected, driftClient, lastBalanceUpdate]);
 
   return { balances, loading, error };
 }

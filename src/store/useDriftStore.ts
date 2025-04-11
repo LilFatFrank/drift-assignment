@@ -1,16 +1,28 @@
 import { create } from 'zustand';
 import { DriftClient, User } from '@drift-labs/sdk';
 
-interface DriftState {
+interface DriftStore {
   driftClient: DriftClient | null;
-  subaccounts: User[];
   setDriftClient: (client: DriftClient) => void;
-  setSubaccounts: (users: User[]) => void;
+  subaccounts: User[];
+  setSubaccounts: (subaccounts: User[]) => void;
+  selectedSubaccount: number;
+  setSelectedSubaccount: (index: number) => void;
+  activeSubaccountId: number | null;
+  setActiveSubaccountId: (subaccountId: number) => void;
+  lastBalanceUpdate: number;
+  refreshBalances: () => void;
 }
 
-export const useDriftStore = create<DriftState>((set) => ({
+export const useDriftStore = create<DriftStore>((set, get) => ({
   driftClient: null,
-  subaccounts: [],
   setDriftClient: (client) => set({ driftClient: client }),
-  setSubaccounts: (users) => set({ subaccounts: users }),
+  subaccounts: [],
+  setSubaccounts: (subaccounts) => set({ subaccounts }),
+  selectedSubaccount: 0,
+  setSelectedSubaccount: (index) => set({ selectedSubaccount: index }),
+  activeSubaccountId: null,
+  setActiveSubaccountId: (subaccountId) => set({ activeSubaccountId: subaccountId }),
+  lastBalanceUpdate: Date.now(),
+  refreshBalances: () => set({ lastBalanceUpdate: Date.now() }),
 }));

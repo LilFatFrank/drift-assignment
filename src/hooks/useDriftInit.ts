@@ -19,6 +19,7 @@ export function useDriftInit() {
   const viewedWallet = useViewerStore((s) => s.viewedWallet);
   const setDriftClient = useDriftStore((s) => s.setDriftClient);
   const setSubaccounts = useDriftStore((s) => s.setSubaccounts);
+  const setActiveSubaccountId = useDriftStore((s) => s.setActiveSubaccountId);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -104,6 +105,9 @@ export function useDriftInit() {
         }
 
         setSubaccounts(users);
+        if (users.length > 0) {
+          setActiveSubaccountId(users[0].getUserAccount().subAccountId);
+        }
       } catch (err: any) {
         console.error("Drift SDK load error:", err);
         setError(err.message || "Failed to initialize Drift client");
